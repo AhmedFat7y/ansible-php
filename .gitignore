@@ -1,0 +1,4 @@
+.env
+*.retry
+ssh/deployer/*
+!ssh/deployer/.gitkeep

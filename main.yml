@@ -1,0 +1,193 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars_files:
+    - vault.yml
+    - vars.yml
+  tasks:
+    - name: Create Backend Droplet.
+      digital_ocean:
+        api_token: "{{ lookup('env', 'DO_API_TOKEN') }}"
+        state: present
+        command: droplet
+        name: faragalla-backend
+        private_networking: yes
+        # size_id: s-2vcpu-4gb
+        size_id: s-1vcpu-1gb
+        image_id: ubuntu-16-04-x64
+        region_id: ams3
+        # Customize this for your account.
+        ssh_key_ids: 19808077
+        # Required for idempotence/only one droplet creation.
+        unique_name: yes
+        backups_enabled: yes
+        wait_timeout: 600
+        user_data: "{{ lookup('file', 'user-data.yml') }}"
+      register: do_backend
+
+    - name: Add new host to our inventory.
+      add_host:
+        name: do_backend
+        ansible_host: "{{ do_backend.droplet.ip_address }}"
+        groups:
+          - "{{ do_backend.droplet.private_ip_address }}"
+      when: do_backend.droplet is defined
+      changed_when: False
+
+
+    - name: Create DB Droplet
+      digital_ocean:
+        api_token: "{{ lookup('env', 'DO_API_TOKEN') }}"
+        state: present
+        command: droplet
+        name: faragalla-db
+        private_networking: yes
+        # size_id: s-2vcpu-4gb
+        size_id: s-1vcpu-1gb
+        image_id: ubuntu-16-04-x64
+        region_id: ams3
+        # Customize this for your account.
+        ssh_key_ids: 19808077
+        # Required for idempotence/only one droplet creation.
+        unique_name: yes
+        backups_enabled: yes
+        wait_timeout: 600
+      register: do_db
+      when: __site_template_name != 'static'
+
+    - name: Add new host to our inventory.
+      add_host:
+        name: do_db
+        ansible_host: "{{ do_db.droplet.ip_address }}"
+        groups:
+          - "{{ do_db.droplet.private_ip_address }}"
+      when: do_db.droplet is defined
+      changed_when: False
+
+
+# - hosts: all
+#   remote_user: root
+#   gather_facts: False
+#   vars_files:
+#     - vault.yml
+#     - vars.yml
+#   tasks:
+#     - name: Wait for port 22 to become available.
+#       local_action: "wait_for port=22 host={{ hostvars[inventory_hostname]['ansible_host'] }}"
+
+#     - name: Gathering facts
+#       setup:
+
+#     - name: Setup server
+#       include_role:
+#         name: basics
+
+#     - name: Create Sudo user
+#       include_role:
+#         name: create-sudo-user
+#       loop: "{{ __sudo_users }}"
+#       loop_control:
+#         loop_var: new_user
+
+#     - name: Lock UFW
+#       include_role:
+#         name: lock-ufw
+    
+#     - name: Lock SSH
+#       include_role:
+#         name: lock-ssh
+#       vars:
+#         ssh_users: "{{ __sudo_users | join(' ', 'name') }} {{ __deployer_user.name }}"
+
+
+# - hosts: do_backend
+#   remote_user: "{{ __sudo_users[0].name }}"
+#   become: True
+#   gather_facts: False
+#   vars_files:
+#     - vault.yml
+#     - vars.yml
+#   tasks:
+#     - name: Create Deployer user
+#       include_role:
+#         name: create-deployer-user
+#       vars:
+#         project_location: "{{ __project_location }}"
+#         deployer_user: "{{ __deployer_user }}"
+    
+#     - name: Setup Nginx
+#       include_role:
+#         name: nginx
+#       vars:
+#         deployer_user: "{{ __deployer_user }}"
+#         project_location: "{{ __project_location }}"
+#         site_template_name: "{{ __site_template_name }}"
+#         domain_names: "{{ __domain_names }}"
+#     - name: Setup PHP
+#       include_role:
+#         name: php
+
+#     - name: Setup PHP-FPM
+#       include_role:
+#         name: configure-phpfpm-user
+#       vars:
+#         deployer_user: "{{ __deployer_user }}"
+#         site_php_workers: "{{ __site_php_workers }}"
+
+#     - name: Add db private ip in backend hosts file
+#       lineinfile:
+#         path: /etc/hosts
+#         state: present
+#         regexp: '\d+\.\d+\.\d+\.\d+\s+db'
+#         line: "{{ hostvars['do_db']['group_names'][0] }}  db"
+
+
+# - hosts: do_backend
+#   remote_user: "{{ __deployer_user.name }}"
+#   gather_facts: False
+#   vars_files:
+#     - vault.yml
+#     - vars.yml
+#   tasks:
+#     - name: Clone/Update app
+#       git: 
+#         repo: "{{ __project_repo.url }}"
+#         version: "{{ __project_repo.branch }}"
+#         dest: "{{ __project_location }}"
+#         accept_hostkey: True
+#         force: True
+
+
+- hosts: do_db
+  remote_user: "{{ __sudo_users[0].name }}"
+  become: True
+  gather_facts: False
+  vars_files:
+    - vault.yml
+    - vars.yml
+  tasks:
+    - name: Setup MySQL
+      include_role:
+        name: mysql
+      vars:
+        mysql_root_pass: "{{ __mysql_root_pass }}"
+        database: "{{ __database }}"
+        private_ip: "{{ hostvars['do_db']['group_names'][0] }}"
+    
+    - name: Add backend private ip in db hosts file
+      lineinfile:
+        path: /etc/hosts
+        state: present
+        regexp: '\d+\.\d+\.\d+\.\d+\s+backend'
+        line: "{{ hostvars['do_backend']['group_names'][0] }}  backend"
+
+    - name: Add UFW rule to allow from backend
+      ufw:
+        rule: allow
+        from_ip: "{{ hostvars['do_backend']['group_names'][0]}}"
+    
+    - name: Restart ufw
+      service:
+        name: ufw
+        state: restarted
