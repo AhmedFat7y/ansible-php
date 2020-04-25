@@ -1,10 +1,10 @@
 __site_template_name: wordpress
 
 __domain_names: 
-  - faragalla.com
+  - phantasm.biz
 
 __deployer_user:
-  name: azadir
+  name: phantasm
   group: www-data
   public_keys:
     - "{{ lookup('file', 'ssh/deployer/id_rsa.pub') }}"
@@ -22,16 +22,16 @@ __project_location: /home/{{ __deployer_user.name }}/webapp
 __home_dir: /home/{{ __deployer_user.name }}
 __mysql_root_pass: "{{ vault_mysql_root_pass }}"
 __project_repo:
-  url: "git@gitlab.com:robustastudio-php/faragalla.git"
+  url: "git@gitlab.com:phantasm-php/phantasm.git"
   branch: develop
 __site_php_workers: 30
 __run_mode: setup
 __mysql_app_pass: "{{ vault_mysql_app_pass }}"
 
 __database:
-  name: faragalla
+  name: phantasm
   user:
-    name: "faragalla"
+    name: "phantasm"
     password: "{{ __mysql_app_pass }}"
     hosts: 
       - "backend"
